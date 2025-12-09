@@ -1,74 +1,100 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
 import joblib
 
-# ================================
-# LOAD MODEL & TRANSFORMERS
-# ================================
-model = joblib.load("model_insurance.pkl")
+# =========================
+# LOAD MODEL & ARTIFACTS
+# =========================
+rf_model = joblib.load("model_insurance.pkl")
 scaler = joblib.load("scaler.pkl")
-labelEncod_sex = joblib.load("labelencoder_sex.pkl")
-model_features = joblib.load("model_features.pkl")       # urutan fitur final
-ohe_columns = joblib.load("ohe_columns.pkl")             # kolom hasil OHE
-numerical_cols = joblib.load("numerical_cols.pkl")       # age, bmi, children
+ohe_columns = joblib.load("ohe_columns.pkl")
+numerical_cols = joblib.load("numerical_cols.pkl")
+model_features = joblib.load("model_features.pkl")   # memastikan urutan fitur konsisten
 
-# ================================
-# STREAMLIT UI
-# ================================
-st.title("Prediksi Medical Insurance Charges 💵")
-st.write("Masukkan data berikut untuk memprediksi biaya asuransi (charges).")
+# =========================
+# APLIKASI STREAMLIT
+# =========================
+st.title("🔵 Analisis Prediksi Biaya Medis Personal")
+st.write("Model prediksi menggunakan Random Forest pada data asuransi kesehatan.")
 
-# ----- INPUT USER -----
-age = st.number_input("Age", min_value=1, max_value=100, value=30)
-sex = st.selectbox("Sex", ["male", "female"])
+st.markdown("""
+Aplikasi ini memprediksi **biaya medis personal (charges)** berdasarkan faktor:
+- Usia  
+- BMI  
+- Jumlah anak  
+- Status perokok  
+- Wilayah tempat tinggal  
+""")
+
+st.header("✨ Masukkan Data Pengguna")
+
+
+# =========================
+# INPUT FORM
+# =========================
+age = st.number_input("Usia", min_value=18, max_value=100, value=30)
 bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0)
-children = st.number_input("Children", min_value=0, max_value=10, value=0)
-smoker = st.selectbox("Smoker", ["yes", "no"])
-region = st.selectbox("Region", ["southwest", "southeast", "northwest", "northeast"])
+children = st.number_input("Jumlah Anak", min_value=0, max_value=10, value=0)
 
-# ================================
-# PREDICTION
-# ================================
-if st.button("Prediksi Charges"):
-    # Buat dataframe dari input user
-    new_data = pd.DataFrame({
-        "age": [age],
-        "sex": [sex],
-        "bmi": [bmi],
-        "children": [children],
-        "smoker": [smoker],
-        "region": [region]
-    })
+smoker = st.selectbox("Apakah Perokok?", ["Yes", "No"])
+region = st.selectbox("Region Tempat Tinggal", ["southeast", "southwest", "northwest", "northeast"])
 
-    # -----------------------
-    # LABEL ENCODE (sex)
-    # -----------------------
-    new_data["sex"] = labelEncod_sex.transform(new_data["sex"])
 
-    # -----------------------
-    # ONE HOT ENCODING (smoker, region)
-    # -----------------------
-    new_data = pd.get_dummies(new_data, columns=["smoker", "region"])
+# =========================
+# PROSES INPUT MENJADI DATAFRAME SESUAI MODEL
+# =========================
+def preprocess_input():
+    # Raw dictionary dari user
+    input_dict = {
+        "age": age,
+        "bmi": bmi,
+        "children": children,
+        "smoker": smoker.lower(),
+        "region": region.lower()
+    }
 
-    # Pastikan kolom OHE sesuai model
+    df = pd.DataFrame([input_dict])
+
+    # ============================
+    # One-Hot Encoding manual
+    # ============================
     for col in ohe_columns:
-        if col not in new_data:
-            new_data[col] = 0
+        df[col] = 0
 
-    # -----------------------
-    # SCALING fitur numerik
-    # -----------------------
-    new_data[numerical_cols] = scaler.transform(new_data[numerical_cols])
+    df[f"smoker_{df['smoker'][0]}"] = 1
+    df[f"region_{df['region'][0]}"] = 1
 
-    # -----------------------
-    # SUSUN URUTAN FITUR
-    # -----------------------
-    new_data = new_data.reindex(columns=model_features, fill_value=0)
+    df.drop(["smoker", "region"], axis=1, inplace=True)
 
-    # -----------------------
-    # PREDIKSI
-    # -----------------------
-    prediction = model.predict(new_data)[0]
+    # ============================
+    # Scaling numerik
+    # ============================
+    df[numerical_cols] = scaler.transform(df[numerical_cols])
 
-    st.success(f"Prediksi Medical Charges: **${prediction:,.2f}**")
+    # ============================
+    # Reorder features agar sesuai model
+    # ============================
+    df = df.reindex(columns=model_features, fill_value=0)
+
+    return df
+
+
+# =========================
+# PREDIKSI
+# =========================
+if st.button("Prediksi Biaya Medis"):
+    input_df = preprocess_input()
+
+    log_pred = rf_model.predict(input_df)[0]
+    final_pred = np.expm1(log_pred)  # kembalikan dari log ke nilai asli
+
+    st.success(f"💰 **Estimasi Biaya Medis: USD {final_pred:,.2f}**")
+
+
+    st.subheader("📊 Data yang Anda Masukkan")
+    st.write(input_df)
+
+
+st.write("---")
+st.caption("Dibuat untuk proyek Machine Learning: Prediksi Biaya Medis Personal")
